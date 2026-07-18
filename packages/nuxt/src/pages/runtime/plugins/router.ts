@@ -15,6 +15,7 @@ import { defineNuxtPlugin, useRuntimeConfig } from '#app/nuxt'
 import { _showErrorUnlessCrawler, clearError, createError, isNuxtError, showError, useError } from '#app/composables/error'
 import { navigateTo } from '#app/composables/router'
 import { navigationDiagnostics } from '../../../app/diagnostics/navigation.ts'
+import { checkRedirectChain } from '../../../app/utils/redirect-loop'
 
 import _routes, { handleHotUpdate } from '#build/routes'
 import routerOptions, { hashMode } from '#build/router.options.mjs'
@@ -43,8 +44,6 @@ function createCurrentLocation (
   const path = !renderedPath || isSamePath(displayedPath, renderedPath) ? displayedPath : renderedPath
   return path + (path.includes('?') ? '' : search) + hash
 }
-
-const MAX_REDIRECTS = 10
 
 const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
   name: 'nuxt:router',
@@ -150,8 +149,6 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
       named: {},
     }
 
-    const redirectChain = new Set<string>()
-    const resetRedirectChain = () => redirectChain.clear()
     const error = useError()
     // we only skip redirect handlers for component islands, not page islands
     const isServerPage = import.meta.server && nuxtApp.ssrContext?.islandContext?.name?.startsWith('page_')
@@ -213,11 +210,11 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
       return { provide: { router } }
     }
 
+    const redirectChain = new Set<string>()
+    const resetRedirectChain = () => redirectChain.clear()
+
     const initialLayout = nuxtApp.payload.state._layout
     router.beforeEach(async (to, from) => {
-      if (redirectChain.size === 0) {
-        redirectChain.add(to.fullPath)
-      }
       await nuxtApp.callHook('page:loading:start')
       to.meta = reactive(to.meta)
       if (nuxtApp.isHydrating && initialLayout && !isReadonly(to.meta.layout)) {
@@ -286,21 +283,11 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
                 return result
               }
 
-              const targetPath = router.resolve(result).fullPath
-              if (redirectChain.has(targetPath) || redirectChain.size > MAX_REDIRECTS) {
-                if (import.meta.dev) {
-                  console.warn(
-                    `[nuxt] Redirect loop detected. Navigation to "${targetPath}" was aborted after ${redirectChain.size} redirects.\n` +
-                    `Check your route middleware and redirect rules for circular redirects.`,
-                  )
-                }
-                throw createError({
-                  statusCode: 500,
-                  fatal: true,
-                  statusMessage: `Too many redirects`,
-                })
+              if (import.meta.server || import.meta.dev) {
+                const targetPath = router.resolve(result).fullPath
+                checkRedirectChain(redirectChain, targetPath)
               }
-              redirectChain.add(targetPath)
+
               return result
             }
           } catch (err: any) {
@@ -314,6 +301,11 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
       }
     })
 
+    router.onError(async () => {
+      resetRedirectChain()
+      delete nuxtApp._processingMiddleware
+      await nuxtApp.callHook('page:loading:end')
+    })
     if (isServerPage) {
       // validate that a server page is rendering the correct url
       router.beforeResolve((to) => {
@@ -329,13 +321,6 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
         }
       })
     }
-
-    router.onError(async () => {
-      resetRedirectChain()
-      delete nuxtApp._processingMiddleware
-      await nuxtApp.callHook('page:loading:end')
-    })
-
     router.afterEach((to) => {
       if (to.matched.length === 0 && !error.value) {
         return nuxtApp.runWithContext(() => showError(createError({

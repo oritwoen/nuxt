@@ -5,7 +5,8 @@ import { HTTPError } from '@nuxt/nitro-server/h3'
 import { defineNuxtPlugin, useRuntimeConfig } from '../nuxt'
 import type { ObjectPlugin, Plugin } from '../nuxt'
 import { getRouteRules } from '../composables/manifest'
-import { clearError, showError } from '../composables/error'
+import { checkRedirectChain } from '../utils/redirect-loop'
+import { clearError, createError, showError } from '../composables/error'
 import { navigateTo } from '../composables/router'
 import { navigationDiagnostics } from '../diagnostics/navigation.ts'
 
@@ -126,22 +127,8 @@ const plugin: Plugin<{ route: Route, router: Router }> & ObjectPlugin<{ route: R
     const baseURL = useRuntimeConfig().app.baseURL
 
     const route: Route = reactive(getRouteFromPath(initialURL))
-    const MAX_REDIRECTS = 10
-    async function handleNavigation (url: string | Partial<Route>, replace?: boolean, _depth = 0, seen = new Set<string>()): Promise<void> {
+    async function handleNavigation (url: string | Partial<Route>, replace?: boolean): Promise<void> {
       const to = getRouteFromPath(url)
-      if (seen.has(to.fullPath) || _depth > MAX_REDIRECTS) {
-        if (import.meta.dev) {
-          console.warn(
-            `[nuxt] Redirect loop detected. Navigation to "${to.fullPath}" was aborted after ${_depth} redirects.\n` +
-            `Check your route middleware and redirect rules for circular redirects.`,
-          )
-        }
-        throw new HTTPError({
-          status: 500,
-          statusText: `Too many redirects`,
-        })
-      }
-      seen.add(to.fullPath)
       try {
         // Run beforeEach hooks
         for (const middleware of hooks['navigate:before']) {
@@ -149,7 +136,7 @@ const plugin: Plugin<{ route: Route, router: Router }> & ObjectPlugin<{ route: R
           // Cancel navigation
           if (result === false || result instanceof Error) { return }
           // Redirect
-          if (typeof result === 'string' && result.length) { return await handleNavigation(result, true, _depth + 1, new Set(seen)) }
+          if (typeof result === 'string' && result.length) { return await handleNavigation(result, true) }
         }
 
         for (const handler of hooks['resolve:before']) {
@@ -168,10 +155,17 @@ const plugin: Plugin<{ route: Route, router: Router }> & ObjectPlugin<{ route: R
         for (const middleware of hooks['navigate:after']) {
           await middleware(to, route)
         }
-      } catch (err) {
+      } catch (err: any) {
+        const normalized = createError(err)
+
+        if (import.meta.server && normalized.fatal) {
+          await nuxtApp.runWithContext(() => showError(normalized))
+        }
+
         if (import.meta.dev && !hooks.error.length) {
           navigationDiagnostics.NUXT_E2009({ cause: err })
         }
+
         for (const handler of hooks.error) {
           await handler(err)
         }
@@ -253,6 +247,16 @@ const plugin: Plugin<{ route: Route, router: Router }> & ObjectPlugin<{ route: R
 
     const initialLayout = nuxtApp.payload.state._layout
     const initialLayoutProps = nuxtApp.payload.state._layoutProps
+
+    if (import.meta.server || import.meta.dev) {
+      const chain = new Set<string>()
+      router.beforeEach((to: Route) => {
+        checkRedirectChain(chain, to.fullPath)
+      })
+      router.afterEach(() => chain.clear())
+      router.onError(() => chain.clear())
+    }
+
     nuxtApp.hooks.hookOnce('app:created', async () => {
       router.beforeEach(async (to, from) => {
         to.meta = reactive(to.meta || {})
