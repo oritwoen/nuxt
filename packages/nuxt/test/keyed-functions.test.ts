@@ -1,7 +1,6 @@
 import type { KeyedFunction } from '@nuxt/schema'
 import { describe, expect, it, vi } from 'vitest'
 import { KeyedFunctionsPlugin } from '../src/compiler/plugins/keyed-functions'
-import { logger } from '../src/utils'
 import type { Import } from 'unimport'
 
 describe('keyed functions plugin - reactive getter (dev mode)', () => {
@@ -11,7 +10,6 @@ describe('keyed functions plugin - reactive getter (dev mode)', () => {
     ]
 
     const plugin = KeyedFunctionsPlugin({
-      sourcemap: false,
       keyedFunctions,
       getKeyedFunctions: () => keyedFunctions,
       alias: {},
@@ -50,7 +48,6 @@ useNewComposable()
     ]
 
     const plugin = KeyedFunctionsPlugin({
-      sourcemap: false,
       keyedFunctions,
       getKeyedFunctions: () => keyedFunctions,
       alias: {},
@@ -79,7 +76,6 @@ useExisting()
     ]
 
     const plugin = KeyedFunctionsPlugin({
-      sourcemap: false,
       keyedFunctions,
       getKeyedFunctions: () => keyedFunctions,
       alias: {},
@@ -155,7 +151,7 @@ describe('keyed functions plugin', () => {
     },
   ]
 
-  const transformPlugin = KeyedFunctionsPlugin({ sourcemap: false, keyedFunctions, alias: {}, getAutoImports: () => Promise.resolve(autoImports), appDir: '/nuxt/dist/app/' }).raw({}, {} as any) as { transform: { handler: (code: string, id: string) => Promise<{ code: string } | null> } }
+  const transformPlugin = KeyedFunctionsPlugin({ keyedFunctions, alias: {}, getAutoImports: () => Promise.resolve(autoImports), appDir: '/nuxt/dist/app/' }).raw({}, {} as any) as { transform: { handler: (code: string, id: string) => Promise<{ code: string } | null> } }
 
   it('should add hash when there is none already provided', async () => {
     const code = `
@@ -240,12 +236,12 @@ useRenamedDefault()`
   it('should warn if there are duplicate entries in keyed functions', () => {
     vi.stubGlobal('__TEST_DEV__', true)
 
-    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    KeyedFunctionsPlugin({ sourcemap: false, keyedFunctions, alias: {}, getAutoImports: () => Promise.resolve(autoImports), appDir: '/nuxt/dist/app/' }).raw({}, {} as any)
+    KeyedFunctionsPlugin({ keyedFunctions, alias: {}, getAutoImports: () => Promise.resolve(autoImports), appDir: '/nuxt/dist/app/' }).raw({}, {} as any)
 
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(
-      /\[nuxt:compiler\] \[keyed-functions\] Duplicate function name `useKeyTwo` with the same source `#app` found. Overwriting the existing entry./,
+      /Duplicate keyed function name `useKeyTwo`.* with the same source `#app` found\. Overwriting the existing entry\./,
     ))
     warn.mockRestore()
     vi.unstubAllGlobals()
@@ -902,7 +898,7 @@ describe('core keyed functions', () => {
     { name: 'useLazyAsyncData', argumentLength: 3, source: '#app/composables/asyncData' },
     { name: 'useLazyFetch', argumentLength: 3, source: '#app/composables/fetch' },
   ]
-  const transformPlugin = KeyedFunctionsPlugin({ sourcemap: false, keyedFunctions, alias: {}, getAutoImports: () => Promise.resolve([]), appDir: '/nuxt/dist/app/' }).raw({}, {} as any) as { transform: { handler: (code: string, id: string) => Promise<{ code: string } | null> } }
+  const transformPlugin = KeyedFunctionsPlugin({ keyedFunctions, alias: {}, getAutoImports: () => Promise.resolve([]), appDir: '/nuxt/dist/app/' }).raw({}, {} as any) as { transform: { handler: (code: string, id: string) => Promise<{ code: string } | null> } }
 
   it('should detect string type keys and not add a hash', async () => {
     const code = `
