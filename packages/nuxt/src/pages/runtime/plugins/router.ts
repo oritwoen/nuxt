@@ -282,7 +282,7 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
                 return result
               }
 
-              if (import.meta.server || import.meta.dev) {
+              if ((import.meta.server || import.meta.dev) && !(result instanceof Error)) {
                 const targetPath = router.resolve(result).fullPath
                 checkRedirectChain(redirectChain, targetPath)
               }
