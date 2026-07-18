@@ -150,6 +150,8 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
     }
 
     const error = useError()
+    const redirectChain = new Set<string>()
+    const resetRedirectChain = () => redirectChain.clear()
     // we only skip redirect handlers for component islands, not page islands
     const isServerPage = import.meta.server && nuxtApp.ssrContext?.islandContext?.name?.startsWith('page_')
     if (import.meta.client || !nuxtApp.ssrContext?.islandContext || isServerPage) {
@@ -209,9 +211,6 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
       // we don't need to handle middleware or redirections for non-page islands
       return { provide: { router } }
     }
-
-    const redirectChain = new Set<string>()
-    const resetRedirectChain = () => redirectChain.clear()
 
     const initialLayout = nuxtApp.payload.state._layout
     router.beforeEach(async (to, from) => {
@@ -301,11 +300,6 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
       }
     })
 
-    router.onError(async () => {
-      resetRedirectChain()
-      delete nuxtApp._processingMiddleware
-      await nuxtApp.callHook('page:loading:end')
-    })
     if (isServerPage) {
       // validate that a server page is rendering the correct url
       router.beforeResolve((to) => {
@@ -321,6 +315,13 @@ const plugin: Plugin<{ router: Router }> = defineNuxtPlugin({
         }
       })
     }
+
+    router.onError(async () => {
+      resetRedirectChain()
+      delete nuxtApp._processingMiddleware
+      await nuxtApp.callHook('page:loading:end')
+    })
+
     router.afterEach((to) => {
       if (to.matched.length === 0 && !error.value) {
         return nuxtApp.runWithContext(() => showError(createError({

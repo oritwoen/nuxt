@@ -127,14 +127,24 @@ const plugin: Plugin<{ route: Route, router: Router }> & ObjectPlugin<{ route: R
     const baseURL = useRuntimeConfig().app.baseURL
 
     const route: Route = reactive(getRouteFromPath(initialURL))
+    const redirectChain = new Set<string>()
     async function handleNavigation (url: string | Partial<Route>, replace?: boolean): Promise<void> {
-      const to = getRouteFromPath(url)
       try {
+        // Resolve route
+        const to = getRouteFromPath(url)
+
+        if (import.meta.server || import.meta.dev) {
+          checkRedirectChain(redirectChain, to.fullPath)
+        }
+
         // Run beforeEach hooks
         for (const middleware of hooks['navigate:before']) {
           const result = await middleware(to, route)
           // Cancel navigation
-          if (result === false || result instanceof Error) { return }
+          if (result === false || result instanceof Error) {
+            redirectChain.clear()
+            return
+          }
           // Redirect
           if (typeof result === 'string' && result.length) { return await handleNavigation(result, true) }
         }
@@ -155,7 +165,9 @@ const plugin: Plugin<{ route: Route, router: Router }> & ObjectPlugin<{ route: R
         for (const middleware of hooks['navigate:after']) {
           await middleware(to, route)
         }
+        redirectChain.clear()
       } catch (err: any) {
+        redirectChain.clear()
         const normalized = createError(err)
 
         if (import.meta.server && normalized.fatal) {
@@ -247,16 +259,6 @@ const plugin: Plugin<{ route: Route, router: Router }> & ObjectPlugin<{ route: R
 
     const initialLayout = nuxtApp.payload.state._layout
     const initialLayoutProps = nuxtApp.payload.state._layoutProps
-
-    if (import.meta.server || import.meta.dev) {
-      const chain = new Set<string>()
-      router.beforeEach((to: Route) => {
-        checkRedirectChain(chain, to.fullPath)
-      })
-      router.afterEach(() => chain.clear())
-      router.onError(() => chain.clear())
-    }
-
     nuxtApp.hooks.hookOnce('app:created', async () => {
       router.beforeEach(async (to, from) => {
         to.meta = reactive(to.meta || {})

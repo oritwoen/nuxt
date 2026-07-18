@@ -5,10 +5,6 @@ export const MAX_REDIRECTS = 10
 /**
  * Throws a fatal error (500) when a redirect loop is detected.
  * In dev, logs a verbose warning with the target path and redirect count.
- *
- * Note: vue-router path can't use a separate beforeEach guard because
- * vue-router stops after ~3 redirects (detects duplicate target), so
- * the check must be inline in the middleware return handler.
  */
 export function failRedirectLoop (targetPath: string, redirectCount: number): never {
   if (import.meta.dev) {
@@ -31,7 +27,7 @@ export function failRedirectLoop (targetPath: string, redirectCount: number): ne
  * the chain exceeds MAX_REDIRECTS, calls failRedirectLoop.
  */
 export function checkRedirectChain (chain: Set<string>, targetPath: string): void {
-  if (chain.has(targetPath) || chain.size > MAX_REDIRECTS) {
+  if (chain.has(targetPath) || chain.size >= MAX_REDIRECTS) {
     failRedirectLoop(targetPath, chain.size)
   }
 
